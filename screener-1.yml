@@ -1,0 +1,86 @@
+name: screener-v3
+
+on:
+  schedule:
+    # 09:00 UTC = 16:00 ICT — sau khi HOSE đóng cửa và số liệu khối ngoại đã chốt.
+    # Chạy sớm hơn 15h00 ICT thì KN là số TRONG PHIÊN, không phải số chốt.
+    - cron: "0 9 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      chay_lai:
+        description: "Chạy lại đè lên phiên đã có trong out/latest.json"
+        type: boolean
+        default: false
+
+concurrency:
+  # Hai lần chạy chồng nhau sẽ cùng ghi khoi_ngoai_log.csv rồi push xung đột.
+  group: screener-v3
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  chay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"   # khớp Colab
+          cache: pip
+
+      - name: Cài thư viện (đã ghim)
+        run: |
+          pip install -r requirements.txt
+          pip freeze | grep -i '^vnstock\|^pandas\|^numpy'
+
+      - name: Chạy screener
+        env:
+          # Repo PUBLIC — mọi số liệu cá nhân phải đi qua secret.
+          # Lưu ý: lịch sử commit của repo public không xoá được, nên nếu đã
+          # lỡ commit NAV/danh mục thì phải tạo repo mới, không phải xoá file.
+          NAV: ${{ secrets.NAV }}
+          DANH_MUC_HIEN_TAI: ${{ secrets.DANH_MUC_HIEN_TAI }}
+          CHUOI_R_GAN_NHAT: ${{ secrets.CHUOI_R_GAN_NHAT }}
+          CO_BAN_TAY: ${{ secrets.CO_BAN_TAY }}
+          INVALIDATION: ${{ secrets.INVALIDATION }}
+          # Lịch nghỉ HOSE. Để trống thì dùng danh sách mặc định trong code.
+          NGHI_LE: ${{ vars.NGHI_LE }}
+          DATA_DIR: data
+          # Không có dòng này, Python gom stdout thành khối 8KB vì runner không
+          # phải TTY -> log Actions đứng im hàng phút rồi nhả một cục. Nhìn hệt
+          # như treo, và không phân biệt được "đang chờ rate limit" với "chết".
+          PYTHONUNBUFFERED: "1"
+          # Chạy tay muốn đè lên phiên đã có: bật CHAY_LAI ở workflow_dispatch.
+          CHAY_LAI: ${{ inputs.chay_lai && '1' || '' }}
+        run: python -u screener_v3.py
+
+      - name: Commit kết quả
+        run: |
+          git config user.name  "screener-bot"
+          git config user.email "screener-bot@users.noreply.github.com"
+          git add out data
+          if git diff --staged --quiet; then
+            echo "Không có thay đổi — bỏ qua commit."
+            exit 0
+          fi
+          git commit -m "screener: phiên $(date -u -d '+7 hours' +%Y-%m-%d)"
+          # Lịch chạy có thể trùng với commit tay -> rebase rồi thử lại.
+          for i in 1 2 3; do
+            git pull --rebase --autostash && git push && exit 0
+            sleep 5
+          done
+          exit 1
+
+      - name: Lưu log khi lỗi
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screener-debug
+          path: |
+            data/
+            out/
+          if-no-files-found: ignore
