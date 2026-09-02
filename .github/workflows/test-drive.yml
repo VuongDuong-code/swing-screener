@@ -1,0 +1,46 @@
+name: test-drive
+on: workflow_dispatch
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install google-api-python-client google-auth
+      - name: Ghi thu file len Drive
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          GDRIVE_FOLDER_ID: ${{ secrets.GDRIVE_FOLDER_ID }}
+        shell: python
+        run: |
+          import io, json, os, datetime
+          from google.oauth2 import service_account
+          from googleapiclient.discovery import build
+          from googleapiclient.http import MediaIoBaseUpload
+
+          raw = os.environ.get("GDRIVE_SA_JSON", "")
+          fid = os.environ.get("GDRIVE_FOLDER_ID", "")
+          print("Do dai SA_JSON:", len(raw), "| FOLDER_ID:", fid or "(TRONG)")
+
+          info = json.loads(raw)
+          print("client_email:", info.get("client_email"))
+
+          creds = service_account.Credentials.from_service_account_info(
+              info, scopes=["https://www.googleapis.com/auth/drive"])
+          svc = build("drive", "v3", credentials=creds)
+
+          body = json.dumps({"test": "ok",
+                             "at": datetime.datetime.utcnow().isoformat()},
+                            indent=1).encode()
+          media = MediaIoBaseUpload(io.BytesIO(body),
+                                    mimetype="application/json")
+          f = svc.files().create(
+              body={"name": "drive_test.json", "parents": [fid]},
+              media_body=media, fields="id,name").execute()
+          print("DA GHI:", f["name"], "id:", f["id"])
+
+          back = svc.files().get(fileId=f["id"],
+                                 fields="id,name,parents").execute()
+          print("DOC LAI OK:", back)
+          print("THANH CONG - mo thu muc swing_v3 se thay drive_test.json")
