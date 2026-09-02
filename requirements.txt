@@ -1,0 +1,6 @@
+# Ghim theo môi trường Colab ĐÃ CHẠY ĐƯỢC (probe 02/09/2026).
+# KHÔNG dùng `pip install -U vnstock` trên CI: `-U` kéo bản mới nhất tại thời
+# điểm chạy, nên bản tay và bản tự động sẽ trôi khỏi nhau lúc nào không biết.
+vnstock==4.0.7
+pandas==2.2.3
+numpy==2.1.3
